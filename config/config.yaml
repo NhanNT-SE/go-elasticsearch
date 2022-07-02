@@ -1,0 +1,31 @@
+http_address: 0.0.0.0:9000
+environment: PROD
+
+mongo:
+  uri: mongodb://test11:test11@34.143.169.236:27017/dbtest11
+  database: dbtest11
+
+redis:
+  addr: 34.124.139.128:6379
+  password: "marketplace"
+  db: 0
+  user: "marketplace"
+
+kafka:
+  bootstrap_servers: 134.142.253.26:9092
+  group_id: myGroup
+  auto_offset_reset: earliest
+
+elasticsearch:
+  addr: https://localhost:9200
+  username: elastic
+  password: aL-=pNCVGm7-WH+MJsfv
+# elasticsearch:
+#   addr: https://elasticsearch-0.elasticsearch-all.elk.svc.cluster.local:9200
+#   username: marketplace-0
+#   password: marketplace-0
+
+# elasticsearch:
+#   addr: https://es.rndengineer.org
+#   username: marketplace
+#   password: tkjZ7EvmG_7Lp3c
