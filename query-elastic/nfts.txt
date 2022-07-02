@@ -1,0 +1,116 @@
+# create index nfts
+PUT /marketplace_nfts
+{
+  "mappings" : {
+    "properties" : {
+      "nft_id" : {
+        "type" : "keyword",
+        "index" : false
+      },
+      "collection_id" : {
+        "type" : "keyword",
+        "index" : false
+      },
+      "name" : {
+        "type" : "text"
+      },
+      "description" : {
+        "type" : "text"
+      },
+      "background_color" : {
+        "type" : "keyword",
+        "index" : false
+      },
+      "created_time" : {
+        "type" : "date"
+      },
+      "image" : {
+        "type" : "text",
+        "index" : false
+      },
+      "last_sold_time" : {
+        "type" : "date"
+      },
+      "listed_time" : {
+        "type" : "date"
+      },
+      "price" : {
+        "type" : "integer"
+      },
+      "sale_type" : {
+        "type" : "keyword",
+        "normalizer": "lowercase"
+      },
+      "attributes" : {
+        "type" : "nested",
+        "properties" : {
+          "display_value" : {
+            "type" : "keyword",
+            "normalizer": "lowercase"
+          },
+          "trait_type" : {
+            "type" : "keyword",
+            "normalizer": "lowercase"
+          },
+          "value" : {
+            "type" : "integer"
+          }
+        }
+      }
+    }
+  }
+}
+
+# search multi object
+GET /marketplace_nfts/_search
+{
+  "_source": ["attributes"], 
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "nested": {
+            "path": "attributes",
+            "query": {
+              "bool": {
+                "must": [
+                  {
+                    "match": {
+                      "attributes.trait_type": "Character"
+                    }
+                  },
+                  {
+                    "match": {
+                      "attributes.display_value": "O"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "nested": {
+            "path": "attributes",
+            "query": {
+              "bool": {
+                "must": [
+                  {
+                    "match": {
+                      "attributes.trait_type": "Assesories"
+                    }
+                  },
+                  {
+                    "match": {
+                      "attributes.display_value": "Headphone"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
