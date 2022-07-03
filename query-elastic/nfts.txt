@@ -1,15 +1,15 @@
 # create index nfts
-PUT /marketplace_nfts
+PUT /marketplace-nfts
 {
   "mappings" : {
     "properties" : {
       "nft_id" : {
         "type" : "keyword",
-        "index" : false
+        "index": false
       },
       "collection_id" : {
         "type" : "keyword",
-        "index" : false
+        "index": false
       },
       "name" : {
         "type" : "text"
@@ -62,7 +62,7 @@ PUT /marketplace_nfts
 }
 
 # search multi object
-GET /marketplace_nfts/_search
+GET /marketplace-nfts/_search
 {
   "_source": ["attributes"], 
   "query": {

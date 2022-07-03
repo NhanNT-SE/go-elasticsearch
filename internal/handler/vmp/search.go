@@ -1,12 +1,13 @@
 package vmp
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"log"
+	"fmt"
+	"go-elasticsearch/pkg/elasticstore"
+
 	"net/http"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type NftIndex struct {
@@ -30,78 +31,76 @@ type NftAttrs struct {
 	Value        int    `json:"value,omitempty"`
 }
 type SearchRequest struct {
-	Text string `json:"text"`
+	Text     string                     `json:"text"`
+	Attrs    []AttrsReq                 `json:"attrs"`
+	SaleType []string                   `json:"saleType"`
+	Price    elasticstore.RangeQueryReq `json:"price"`
 }
 
-type SearchResponse struct {
-	Result map[string]interface{} `json:"result"`
+type AttrsReq struct {
+	TraitType    string   `json:"traitType"`
+	DisplayValue []string `json:"displayValue"`
 }
 
-func (s *Handler) Search(r *http.Request, req *SearchRequest, resp *SearchResponse) error {
-	var mapRes map[string]interface{}
+type SearchResp struct {
+	Data any `json:"data"`
+	Req  any `json:"req"`
+}
 
-	var buf bytes.Buffer
-	query := map[string]interface{}{
-		"query": map[string]interface{}{
-			"match_all": map[string]interface{}{},
-		},
+func (h *Handler) SearchNft(r *http.Request, req *SearchRequest, resp *elasticstore.SearchResults[NftIndex]) error {
+	// func (h *Handler) SearchNft(r *http.Request, req *SearchRequest, resp *SearchResp) error {
+	store := elasticstore.NewStore[NftIndex](h.esClient, "marketplace-nfts")
+
+	var must []interface{}
+
+	if req.Text == "" {
+		must = append(must, store.BuildMatchAllQuery())
+	} else {
+		must = append(must, store.BuildMultiMatchQuery(req.Text, []string{"name", "description"}))
 	}
-	if err := json.NewEncoder(&buf).Encode(query); err != nil {
-		log.Println("parse error", err)
+
+	if len(req.SaleType) > 0 {
+		must = append(must, store.BuildTermsQuery("sale_type", req.SaleType))
+	}
+	if (elasticstore.RangeQueryReq{}) != req.Price {
+		mRange := store.BuildRangeQuery(&req.Price, "price")
+		must = append(must, mRange)
 	}
 
-	es := s.esClient
+	if len(req.Attrs) > 0 {
+		for _, attr := range req.Attrs {
+			var nestedMust []interface{}
+			if attr.TraitType != "" {
 
-	res, err := es.Search(
-		es.Search.WithContext(context.Background()),
-		es.Search.WithIndex("marketplace_nfts"),
-		es.Search.WithBody(&buf),
-		es.Search.WithTrackTotalHits(true),
-		es.Search.WithPretty(),
-	)
-	if err != nil {
-		log.Fatalf("Error getting response: %s", err)
-	}
-	defer res.Body.Close()
+				nestedMust = append(nestedMust, store.BuildTermQuery("attributes.trait_type", attr.TraitType))
+			}
+			if len(attr.DisplayValue) > 0 {
 
-	if res.IsError() {
-		var e map[string]interface{}
-		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			log.Fatalf("Error parsing the response body: %s", err)
-		} else {
-			// Print the response status and error information.
-			log.Fatalf("[%s] %s: %s",
-				res.Status(),
-				e["error"].(map[string]interface{})["type"],
-				e["error"].(map[string]interface{})["reason"],
-			)
+				nestedMust = append(nestedMust, store.BuildTermsQuery("attributes.display_value", attr.DisplayValue))
+			}
+
+			must = append(must, store.BuildNestedQuery(
+				"attributes",
+				store.BuildBoolQuery("must", &nestedMust),
+			))
 		}
-	}
-
-	if err := json.NewDecoder(res.Body).Decode(&mapRes); err != nil {
-		log.Fatalf("Error parsing the response body: %s", err)
 
 	}
-	// var b bytes.Buffer
-	// var mapResp map[string]interface{}
-
-	// b.ReadFrom(res.Body)
-
-	// log.Println(b)
-	// Print the response status, number of results, and request duration.
-
-	// log.Printf(
-	// 	"[%s] %d hits; took: %dms",
-	// 	res.Status(),
-	// 	int(mapRes["hits"].(map[string]interface{})["total"].(map[string]interface{})["value"].(float64)),
-	// 	int(mapRes["took"].(float64)),
-	// )
-	// // Print the ID and document source for each hit.
-	// for _, hit := range mapRes["hits"].(map[string]interface{})["hits"].([]interface{}) {
-	// 	log.Printf(" * ID=%s, %s", hit.(map[string]interface{})["_id"], hit.(map[string]interface{})["_source"])
+	// resulConfig := elasticstore.ResultConfig{
+	// 	Source: []string{""},
+	// 	Size:   1,
 	// }
+	// store.SetResultConfigs(resulConfig)
+	mapQuery := store.BuildBoolQuery("must", &must)
+	queryBuild, err := store.BuildQuery(mapQuery)
+	if err != nil {
+		return err
+	}
 
-	// log.Println(strings.Repeat("=", 37))
-	resp.Result = mapRes
+	err = store.SearchByQuery(queryBuild, resp)
+	if err != nil {
+		log.Err(err).Msg("elasticsearch error")
+		return fmt.Errorf("Internal server error")
+	}
 	return nil
 }
