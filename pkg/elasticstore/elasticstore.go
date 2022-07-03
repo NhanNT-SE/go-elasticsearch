@@ -10,9 +10,9 @@ import (
 )
 
 type Store[T any] struct {
-	es           *elasticsearch.Client
-	indexName    string
-	resultConfig ResultConfig
+	es                 *elasticsearch.Client
+	indexName          string
+	resultSearchConfig ResultSearchConfig
 }
 
 type Hit[T any] struct {
@@ -20,7 +20,7 @@ type Hit[T any] struct {
 	Doc T      `json:"doc"`
 }
 
-type ResultConfig struct {
+type ResultSearchConfig struct {
 	Source any
 	Size   int
 }
@@ -40,8 +40,8 @@ func NewStore[T any](esClient *elasticsearch.Client, indexName string) *Store[T]
 	return &s
 }
 
-func (s *Store[T]) SetResultConfigs(config ResultConfig) {
-	s.resultConfig = config
+func (s *Store[T]) SetResultConfigs(config ResultSearchConfig) {
+	s.resultSearchConfig = config
 }
 
 func (s *Store[T]) SearchByQuery(query *bytes.Buffer, resp *SearchResults[T]) error {
@@ -105,11 +105,11 @@ func (s *Store[T]) BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, 
 	query := map[string]interface{}{
 		"query": *mapQuery,
 	}
-	if s.resultConfig.Source != nil {
-		query["_source"] = s.resultConfig.Source
+	if s.resultSearchConfig.Source != nil {
+		query["_source"] = s.resultSearchConfig.Source
 	}
-	if s.resultConfig.Size > 0 {
-		query["size"] = s.resultConfig.Size
+	if s.resultSearchConfig.Size > 0 {
+		query["size"] = s.resultSearchConfig.Size
 	}
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(&query); err != nil {

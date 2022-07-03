@@ -3,6 +3,7 @@ package vmp
 import (
 	"fmt"
 	"go-elasticsearch/pkg/elasticstore"
+	"strings"
 
 	"net/http"
 	"time"
@@ -30,7 +31,7 @@ type NftAttrs struct {
 	DisplayValue string `json:"display_value,omitempty"`
 	Value        int    `json:"value,omitempty"`
 }
-type SearchRequest struct {
+type SearchNftRequest struct {
 	Text     string                     `json:"text"`
 	Attrs    []AttrsReq                 `json:"attrs"`
 	SaleType []string                   `json:"saleType"`
@@ -47,13 +48,12 @@ type SearchResp struct {
 	Req  any `json:"req"`
 }
 
-func (h *Handler) SearchNft(r *http.Request, req *SearchRequest, resp *elasticstore.SearchResults[NftIndex]) error {
+func (h *Handler) SearchNft(r *http.Request, req *SearchNftRequest, resp *elasticstore.SearchResults[NftIndex]) error {
 	// func (h *Handler) SearchNft(r *http.Request, req *SearchRequest, resp *SearchResp) error {
 	store := elasticstore.NewStore[NftIndex](h.esClient, "marketplace-nfts")
-
 	var must []interface{}
-
-	if req.Text == "" {
+	trimText := strings.TrimSpace(req.Text)
+	if trimText == "" {
 		must = append(must, store.BuildMatchAllQuery())
 	} else {
 		must = append(must, store.BuildMultiMatchQuery(req.Text, []string{"name", "description"}))
