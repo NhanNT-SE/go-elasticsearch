@@ -3,8 +3,8 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"go-elasticsearch/config"
-	"go-elasticsearch/internal/handler/vmp"
+	"marketplace-backend/config"
+	"marketplace-backend/internal/handler/vmp"
 	"net/http"
 	"sync"
 

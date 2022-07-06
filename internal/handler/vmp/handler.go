@@ -1,9 +1,9 @@
 package vmp
 
 import (
-	"go-elasticsearch/config"
-	"go-elasticsearch/internal/must"
-	"go-elasticsearch/pkg/logger"
+	"marketplace-backend/config"
+	"marketplace-backend/internal/must"
+	"marketplace-backend/pkg/logger"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/rs/zerolog"

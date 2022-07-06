@@ -1,4 +1,4 @@
-module go-elasticsearch
+module marketplace-backend
 
 go 1.18
 

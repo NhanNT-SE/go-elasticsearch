@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"go-elasticsearch/pkg/logger"
+	"marketplace-backend/pkg/logger"
 )
 
 //go:embed config.yaml

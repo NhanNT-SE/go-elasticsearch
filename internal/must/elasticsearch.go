@@ -3,8 +3,8 @@ package must
 import (
 	"encoding/json"
 	"fmt"
-	"go-elasticsearch/config"
-	"go-elasticsearch/pkg/logger"
+	"marketplace-backend/config"
+	"marketplace-backend/pkg/logger"
 
 	"github.com/elastic/go-elasticsearch/v8"
 )

@@ -5,14 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"marketplace-backend/pkg/logger"
+	"math"
+	"reflect"
 
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
+var (
+	log = logger.New()
+)
+
 type Store[T any] struct {
-	es                 *elasticsearch.Client
-	indexName          string
-	resultSearchConfig ResultSearchConfig
+	es              *elasticsearch.Client
+	indexName       string
+	resSearchConfig ResponseSearchConfig
 }
 
 type Hit[T any] struct {
@@ -20,14 +27,15 @@ type Hit[T any] struct {
 	Doc T      `json:"doc"`
 }
 
-type ResultSearchConfig struct {
-	Source any
-	Size   int
+type ResponseSearchConfig struct {
+	Source any `json:"source" elastic:"_source"`
+	Size   int `json:"limit" elastic:"size"`
+	From   int `json:"offset" elastic:"from"`
 }
 
 type SearchResults[T any] struct {
-	Total float64  `json:"total,omitempty"`
-	Data  []Hit[T] `json:"data,omitempty"`
+	Pagination Pagination `json:"pagination"`
+	Data       []Hit[T]   `json:"data,omitempty"`
 }
 
 type RangeQueryReq struct {
@@ -35,13 +43,20 @@ type RangeQueryReq struct {
 	To   any `json:"to"`
 }
 
+type Pagination struct {
+	TotalDoc  int `json:"total_doc,omitempty"`
+	TotalPage int `json:"total_page,omitempty"`
+	Limit     int `json:"limit,omitempty"`
+	Offset    int `json:"offset"`
+}
+
 func NewStore[T any](esClient *elasticsearch.Client, indexName string) *Store[T] {
 	s := Store[T]{es: esClient, indexName: indexName}
 	return &s
 }
 
-func (s *Store[T]) SetResultConfigs(config ResultSearchConfig) {
-	s.resultSearchConfig = config
+func (s *Store[T]) SetResponseSearchConfig(config ResponseSearchConfig) {
+	s.resSearchConfig = config
 }
 
 func (s *Store[T]) SearchByQuery(query *bytes.Buffer, resp *SearchResults[T]) error {
@@ -54,6 +69,7 @@ func (s *Store[T]) SearchByQuery(query *bytes.Buffer, resp *SearchResults[T]) er
 		es.Search.WithTrackTotalHits(true),
 		es.Search.WithPretty(),
 	)
+
 	if err != nil {
 		return err
 	}
@@ -96,8 +112,11 @@ func (s *Store[T]) SearchByQuery(query *bytes.Buffer, resp *SearchResults[T]) er
 		}
 		hitList = append(hitList, hit)
 	}
-	resp.Total = total
+
+	// Set data response for pagination
 	resp.Data = hitList
+	resp.Pagination = setPagination(s.resSearchConfig.Size, s.resSearchConfig.From, int(total))
+
 	return nil
 }
 
@@ -105,17 +124,31 @@ func (s *Store[T]) BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, 
 	query := map[string]interface{}{
 		"query": *mapQuery,
 	}
-	if s.resultSearchConfig.Source != nil {
-		query["_source"] = s.resultSearchConfig.Source
+
+	config := s.resSearchConfig
+
+	v := reflect.ValueOf(config)
+
+	if !v.IsZero() {
+		typeOfS := v.Type()
+		for i := 0; i < v.NumField(); i++ {
+			tag := typeOfS.Field(i).Tag.Get("elastic")
+			value := v.Field(i).Interface()
+
+			if value != nil && !reflect.ValueOf(value).IsZero() {
+				if tag == "_source" && len(value.([]interface{})) == 0 {
+					value = false
+				}
+				query[tag] = value
+			}
+		}
+
 	}
-	if s.resultSearchConfig.Size > 0 {
-		query["size"] = s.resultSearchConfig.Size
-	}
+
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(&query); err != nil {
 		return nil, err
 	}
-	// log.Println(&buf)
 	return &buf, nil
 }
 
@@ -143,12 +176,17 @@ func (s *Store[T]) BuildMatchAllQuery() *map[string]interface{} {
 	return &m
 }
 
-func (s *Store[T]) BuildMultiMatchQuery(query string, fields []string) *map[string]interface{} {
+func (s *Store[T]) BuildMultiMatchQuery(query string, fields []string, isFuzzy bool, fuzziness int) *map[string]interface{} {
+	queryM := map[string]interface{}{
+		"query":  query,
+		"fields": fields,
+	}
+	if isFuzzy && fuzziness >= 0 && fuzziness <= 2 {
+		queryM["fuzziness"] = fuzziness
+
+	}
 	return &map[string]interface{}{
-		"multi_match": map[string]interface{}{
-			"query":  query,
-			"fields": fields,
-		},
+		"multi_match": queryM,
 	}
 }
 
@@ -182,4 +220,16 @@ func (s *Store[T]) BuildNestedQuery(path string, query *map[string]interface{}) 
 		},
 	}
 	return &m
+}
+
+func setPagination(size, from, total int) Pagination {
+	pagination := Pagination{}
+	pagination.TotalDoc = total
+	pagination.Limit = size
+	pagination.Offset = from
+	if total > 0 {
+		totalPage := math.Ceil(float64(total) / float64(size))
+		pagination.TotalPage = int(totalPage)
+	}
+	return pagination
 }

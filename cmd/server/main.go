@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"go-elasticsearch/config"
-	"go-elasticsearch/internal/rpc"
-	"go-elasticsearch/pkg/logger"
+	"marketplace-backend/config"
+	"marketplace-backend/internal/rpc"
+	"marketplace-backend/pkg/logger"
 	"net/http"
 	"os"
 	"os/signal"
