@@ -4,6 +4,8 @@ import (
 	"marketplace-backend/config"
 	"marketplace-backend/internal/must"
 	"marketplace-backend/pkg/logger"
+	"marketplace-backend/pkg/storage"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/rs/zerolog"
@@ -15,7 +17,8 @@ type Handler struct {
 
 	// db *mongo.Database
 	// redisClient redis.UniversalClient
-	esClient *elasticsearch.Client
+	esClient      *elasticsearch.Client
+	nftStorageSrv storage.NFTStorageSrv
 }
 
 func NewRPCHandler(cfg config.ServerConfig) *Handler {
@@ -23,13 +26,14 @@ func NewRPCHandler(cfg config.ServerConfig) *Handler {
 	// db := must.ConnectMongoDB(ctx, cfg.Mongo)
 	// redisClient := must.ConnectRedis(ctx, cfg.Redis)
 	esClient := must.ConnectElasticsearch(&cfg.Elasticsearch)
-
+	nftStorageSrv := storage.NewNFTSrv(esClient, time.Second*10)
 	return &Handler{
 		cfg: cfg,
 		log: logger.New(),
 
 		// db:          db,
 		// redisClient: redisClient,
-		esClient: esClient,
+		esClient:      esClient,
+		nftStorageSrv: nftStorageSrv,
 	}
 }

@@ -22,25 +22,25 @@ func ConnectElasticsearch(config *config.ElasticsearchConfig) *elasticsearch.Cli
 	}
 	es, err := elasticsearch.NewClient(cfg)
 	if err != nil {
-		log.Fatal().Err(err).Msg("connect elasticsearch failed")
+		log.Fatal().Err(err).Msg("connect elastic failed")
 	}
 
 	res, err := es.Info()
 	if err != nil {
-		log.Fatal().Err(err).Msg("get info elasticsearch failed")
+		log.Fatal().Err(err).Msg("get info elastic failed")
 	}
 
 	defer res.Body.Close()
 	if res.IsError() {
-		log.Fatal().Err(fmt.Errorf(res.String())).Msg("elasticsearch response error")
+		log.Fatal().Err(fmt.Errorf(res.String())).Msg("elastic response error")
 	}
 
 	var r map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-		log.Fatal().Err(err).Msg("Error parsing elasticsearch response body")
+		log.Fatal().Err(err).Msg("Error parsing elastic response body")
 	}
 
-	log.Debug().Msg("connect elasticsearch successfully")
+	log.Debug().Msg("connect elastic successfully")
 
 	return es
 }

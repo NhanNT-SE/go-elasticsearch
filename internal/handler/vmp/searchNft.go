@@ -2,7 +2,7 @@ package vmp
 
 import (
 	"fmt"
-	"marketplace-backend/pkg/elasticstore"
+	"marketplace-backend/pkg/elastic"
 
 	"net/http"
 	"time"
@@ -31,11 +31,11 @@ type NFTAttrs struct {
 	Value        int    `json:"value,omitempty"`
 }
 type SearchNFTRequest struct {
-	ResponseConfig elasticstore.ResponseSearchConfig `json:"responseConfig"`
-	Text           string                            `json:"text"`
-	Attrs          []AttrsReq                        `json:"attrs"`
-	SaleType       []string                          `json:"saleType"`
-	Price          elasticstore.RangeQueryReq        `json:"price"`
+	ResponseConfig elastic.ResponseSearchConfig `json:"responseConfig"`
+	Text           string                       `json:"text"`
+	Attrs          []AttrsReq                   `json:"attrs"`
+	SaleType       []string                     `json:"saleType"`
+	Price          elastic.RangeQueryReq        `json:"price"`
 }
 
 type AttrsReq struct {
@@ -48,9 +48,10 @@ type SearchResp struct {
 	Req  any `json:"req"`
 }
 
-func (h *Handler) SearchNFT(r *http.Request, req *SearchNFTRequest, resp *elasticstore.SearchResults[NFTIndex]) error {
-	store := elasticstore.NewStore[NFTIndex](h.esClient, "marketplace-nfts")
+func (h *Handler) SearchNFT(r *http.Request, req *SearchNFTRequest, resp *elastic.SearchResults[NFTIndex]) error {
+	store := elastic.NewStore[NFTIndex](h.esClient, "marketplace-nfts", time.Second*10)
 	var must []interface{}
+
 	if req.Text == "" {
 		must = append(must, store.BuildMatchAllQuery())
 	} else {
@@ -60,7 +61,7 @@ func (h *Handler) SearchNFT(r *http.Request, req *SearchNFTRequest, resp *elasti
 	if len(req.SaleType) > 0 {
 		must = append(must, store.BuildTermsQuery("sale_type", req.SaleType))
 	}
-	if (elasticstore.RangeQueryReq{}) != req.Price {
+	if (elastic.RangeQueryReq{}) != req.Price {
 		mRange := store.BuildRangeQuery(&req.Price, "price")
 		must = append(must, mRange)
 	}
@@ -102,8 +103,37 @@ func (h *Handler) SearchNFT(r *http.Request, req *SearchNFTRequest, resp *elasti
 	err = store.SearchByQuery(queryBuild, resp)
 
 	if err != nil {
-		log.Err(err).Msg("elasticsearch error")
-		return fmt.Errorf("Internal server error")
+		log.Err(err).Msg("elastic error")
+		return fmt.Errorf("internal server error")
+	}
+	return nil
+}
+
+func (h *Handler) CreateNFT(r *http.Request, req *NFTIndex, resp *SearchResp) error {
+	store := elastic.NewStore[NFTIndex](h.esClient, "marketplace-nfts", time.Second*10)
+	docId := fmt.Sprintf("%v|%v", req.CollectionId, req.NftId)
+	err := store.CreateIndex(req, docId)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) UpdateNFT(r *http.Request, req *NFTIndex, resp *SearchResp) error {
+	store := elastic.NewStore[NFTIndex](h.esClient, "marketplace-nfts", time.Second*10)
+	docId := fmt.Sprintf("%v|%v", req.CollectionId, req.NftId)
+	err := store.UpdateIndex(req, docId)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) DeleteNFT(r *http.Request, req *string, resp *SearchResp) error {
+	store := elastic.NewStore[NFTIndex](h.esClient, "marketplace-nfts", time.Second*10)
+	err := store.DeleteIndex(r.Context(), *req)
+	if err != nil {
+		return err
 	}
 	return nil
 }

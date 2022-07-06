@@ -1,23 +1,27 @@
-package elasticstore
+package elastic
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"marketplace-backend/pkg/logger"
 	"math"
 	"reflect"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
 )
 
 var (
-	log = logger.New()
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("conflict")
 )
 
 type Store[T any] struct {
 	es              *elasticsearch.Client
+	timeout         time.Duration
 	indexName       string
 	resSearchConfig ResponseSearchConfig
 }
@@ -50,8 +54,8 @@ type Pagination struct {
 	Offset    int `json:"offset"`
 }
 
-func NewStore[T any](esClient *elasticsearch.Client, indexName string) *Store[T] {
-	s := Store[T]{es: esClient, indexName: indexName}
+func NewStore[T any](esClient *elasticsearch.Client, indexName string, timeOut time.Duration) *Store[T] {
+	s := Store[T]{es: esClient, indexName: indexName, timeout: timeOut}
 	return &s
 }
 
@@ -222,6 +226,91 @@ func (s *Store[T]) BuildNestedQuery(path string, query *map[string]interface{}) 
 	return &m
 }
 
+func (s *Store[T]) CreateIndex(index *T, docId string) error {
+	data, err := json.Marshal(index)
+	if err != nil {
+		return fmt.Errorf("Error marshaling document: %s", err)
+	}
+
+	req := esapi.IndexRequest{
+		Index:      s.indexName,
+		DocumentID: docId,
+		Body:       bytes.NewReader(data),
+	}
+	res, err := req.Do(context.Background(), s.es)
+	if err != nil {
+		return fmt.Errorf("Error getting response: %s", err)
+	}
+	defer res.Body.Close()
+
+	err = checkErrorRes(res)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store[T]) UpdateIndex(index *T, docId string) error {
+	data, err := json.Marshal(index)
+	if err != nil {
+		return fmt.Errorf("Error marshaling document: %s", err)
+	}
+
+	req := esapi.UpdateRequest{
+		Index:      s.indexName,
+		DocumentID: docId,
+		Body:       bytes.NewReader([]byte(fmt.Sprintf(`{"doc":%s}`, data))),
+	}
+	res, err := req.Do(context.Background(), s.es)
+	if err != nil {
+		return fmt.Errorf("Error getting response: %s", err)
+	}
+	defer res.Body.Close()
+
+	err = checkErrorRes(res)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store[T]) DeleteIndex(ctx context.Context, docId string) error {
+	req := esapi.DeleteRequest{
+		Index:      s.indexName,
+		DocumentID: docId,
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	res, err := req.Do(ctx, s.es)
+	if err != nil {
+		return fmt.Errorf("Error getting response: %s", err)
+	}
+	defer res.Body.Close()
+
+	err = checkErrorRes(res)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func checkErrorRes(res *esapi.Response) error {
+	if res.StatusCode == 404 {
+		return ErrNotFound
+	}
+
+	if res.StatusCode == 409 {
+		return ErrConflict
+	}
+	if res.IsError() {
+		return fmt.Errorf("Error indexing document ID=%d", res.Status())
+	}
+	var r map[string]interface{}
+	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+		return fmt.Errorf("Error parsing the response body: %s", err)
+	}
+	return nil
+}
 func setPagination(size, from, total int) Pagination {
 	pagination := Pagination{}
 	pagination.TotalDoc = total
