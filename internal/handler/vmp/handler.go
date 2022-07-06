@@ -18,7 +18,7 @@ type Handler struct {
 	// db *mongo.Database
 	// redisClient redis.UniversalClient
 	esClient      *elasticsearch.Client
-	nftStorageSrv storage.NFTStorageSrv
+	storageNFTSrv storage.StorageNFTSrv
 }
 
 func NewRPCHandler(cfg config.ServerConfig) *Handler {
@@ -26,7 +26,7 @@ func NewRPCHandler(cfg config.ServerConfig) *Handler {
 	// db := must.ConnectMongoDB(ctx, cfg.Mongo)
 	// redisClient := must.ConnectRedis(ctx, cfg.Redis)
 	esClient := must.ConnectElasticsearch(&cfg.Elasticsearch)
-	nftStorageSrv := storage.NewNFTSrv(esClient, time.Second*10)
+	storageNFTSrv := storage.NewStorageNFTSrv(esClient, time.Second*10)
 	return &Handler{
 		cfg: cfg,
 		log: logger.New(),
@@ -34,6 +34,6 @@ func NewRPCHandler(cfg config.ServerConfig) *Handler {
 		// db:          db,
 		// redisClient: redisClient,
 		esClient:      esClient,
-		nftStorageSrv: nftStorageSrv,
+		storageNFTSrv: storageNFTSrv,
 	}
 }

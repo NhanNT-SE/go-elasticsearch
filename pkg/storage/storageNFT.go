@@ -8,7 +8,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
-type NFTStorageSrv interface {
+type StorageNFTSrv interface {
 	Insert(ctx context.Context, NFT NFTIndex) error
 	Update(ctx context.Context, NFT NFTIndex) error
 	Delete(ctx context.Context, id string) error
@@ -16,17 +16,17 @@ type NFTStorageSrv interface {
 	SearchByQuery(ctx context.Context, nft SearchNFTRequest) (elastic.SearchResults[NFTIndex], error)
 }
 
-type NFTStorage struct {
+type StorageNFT struct {
 	es        *elasticsearch.Client
 	indexName string
 	timeout   time.Duration
 	storeSrv  elastic.StoreSrv[NFTIndex]
 }
 
-func NewNFTSrv(es *elasticsearch.Client, timeout time.Duration) NFTStorageSrv {
+func NewStorageNFTSrv(es *elasticsearch.Client, timeout time.Duration) StorageNFTSrv {
 	indexName := "marketplace-nfts"
 	storeSrv := elastic.NewStoreSrv[NFTIndex](es, indexName)
-	return &NFTStorage{
+	return &StorageNFT{
 		es:        es,
 		timeout:   timeout,
 		indexName: indexName,
@@ -68,23 +68,23 @@ type AttrsReq struct {
 	DisplayValue []string `json:"displayValue"`
 }
 
-func (store *NFTStorage) Insert(ctx context.Context, NFT NFTIndex) error {
+func (store *StorageNFT) Insert(ctx context.Context, NFT NFTIndex) error {
 	return nil
 }
 
-func (store *NFTStorage) Update(ctx context.Context, NFT NFTIndex) error {
+func (store *StorageNFT) Update(ctx context.Context, NFT NFTIndex) error {
 	return nil
 }
 
-func (store *NFTStorage) Delete(ctx context.Context, id string) error {
+func (store *StorageNFT) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (store *NFTStorage) FindOne(ctx context.Context, id string) (*NFTIndex, error) {
+func (store *StorageNFT) FindOne(ctx context.Context, id string) (*NFTIndex, error) {
 	return nil, nil
 }
 
-func (store *NFTStorage) SearchByQuery(ctx context.Context, req SearchNFTRequest) (elastic.SearchResults[NFTIndex], error) {
+func (store *StorageNFT) SearchByQuery(ctx context.Context, req SearchNFTRequest) (elastic.SearchResults[NFTIndex], error) {
 	result := elastic.SearchResults[NFTIndex]{}
 	storeSrv := store.storeSrv
 	var must []interface{}

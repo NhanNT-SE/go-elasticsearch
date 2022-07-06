@@ -21,7 +21,7 @@ func (h *Handler) SearchNFT(r *http.Request, req *storage.SearchNFTRequest, resp
 	if req.ResponseConfig.From < 0 {
 		return fmt.Errorf("offset: min=0")
 	}
-	search, err := h.nftStorageSrv.SearchByQuery(r.Context(), *req)
+	search, err := h.storageNFTSrv.SearchByQuery(r.Context(), *req)
 	if err != nil {
 		return err
 	}
