@@ -2,9 +2,10 @@ package storage
 
 import (
 	"context"
-	"github.com/elastic/go-elasticsearch/v8"
 	"marketplace-backend/pkg/elastic"
 	"time"
+
+	"github.com/elastic/go-elasticsearch/v8"
 )
 
 type NFTStorageSrv interface {
@@ -12,19 +13,24 @@ type NFTStorageSrv interface {
 	Update(ctx context.Context, NFT NFTIndex) error
 	Delete(ctx context.Context, id string) error
 	FindOne(ctx context.Context, id string) (*NFTIndex, error)
+	SearchByQuery(ctx context.Context, nft SearchNFTRequest) (elastic.SearchResults[NFTIndex], error)
 }
 
 type NFTStorage struct {
 	es        *elasticsearch.Client
 	indexName string
 	timeout   time.Duration
+	storeSrv  elastic.StoreSrv[NFTIndex]
 }
 
 func NewNFTSrv(es *elasticsearch.Client, timeout time.Duration) NFTStorageSrv {
+	indexName := "marketplace-nfts"
+	storeSrv := elastic.NewStoreSrv[NFTIndex](es, indexName)
 	return &NFTStorage{
 		es:        es,
 		timeout:   timeout,
-		indexName: "marketplace-nfts",
+		indexName: indexName,
+		storeSrv:  storeSrv,
 	}
 }
 
@@ -78,8 +84,57 @@ func (store *NFTStorage) FindOne(ctx context.Context, id string) (*NFTIndex, err
 	return nil, nil
 }
 
-func (store *NFTStorage) SearchByQuery(ctx context.Context, id string) (*elastic.SearchResults[NFTIndex], error) {
+func (store *NFTStorage) SearchByQuery(ctx context.Context, req SearchNFTRequest) (elastic.SearchResults[NFTIndex], error) {
 	result := elastic.SearchResults[NFTIndex]{}
+	storeSrv := store.storeSrv
+	var must []interface{}
 
-	return &result, nil
+	if req.Text == "" {
+		must = append(must, storeSrv.BuildMatchAllQuery())
+	} else {
+		must = append(must, storeSrv.BuildMultiMatchQuery(req.Text, []string{"name", "description"}, true, 2))
+	}
+
+	if len(req.SaleType) > 0 {
+		must = append(must, storeSrv.BuildTermsQuery("sale_type", req.SaleType))
+	}
+	if (elastic.RangeQueryReq{}) != req.Price {
+		mRange := storeSrv.BuildRangeQuery(&req.Price, "price")
+		must = append(must, mRange)
+	}
+
+	if len(req.Attrs) > 0 {
+		for _, attr := range req.Attrs {
+			var nestedMust []interface{}
+			if attr.TraitType != "" {
+				nestedMust = append(nestedMust, storeSrv.BuildTermQuery("attributes.trait_type", attr.TraitType))
+			}
+			if len(attr.DisplayValue) > 0 {
+
+				nestedMust = append(nestedMust, storeSrv.BuildTermsQuery("attributes.display_value", attr.DisplayValue))
+			}
+
+			must = append(must, storeSrv.BuildNestedQuery(
+				"attributes",
+				storeSrv.BuildBoolQuery("must", &nestedMust),
+			))
+		}
+
+	}
+
+	mapQuery := storeSrv.BuildBoolQuery("must", &must)
+
+	storeSrv.SetResponseSearchConfig(req.ResponseConfig)
+	queryBuild, err := storeSrv.BuildQuery(mapQuery)
+	if err != nil {
+		return result, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, store.timeout)
+	defer cancel()
+	result, err = storeSrv.SearchByQuery(ctx, queryBuild)
+	if err != nil {
+		return result, err
+	}
+
+	return result, nil
 }

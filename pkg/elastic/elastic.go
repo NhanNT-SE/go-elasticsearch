@@ -19,6 +19,19 @@ var (
 	ErrConflict = errors.New("conflict")
 )
 
+type StoreSrv[T any] interface {
+	SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults[T], error)
+	BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error)
+	BuildRangeQuery(rangeReq *RangeQueryReq, fieldName string) *map[string]interface{}
+	BuildMatchAllQuery() *map[string]interface{}
+	BuildMultiMatchQuery(query string, fields []string, isFuzzy bool, fuzziness int) *map[string]interface{}
+	BuildTermsQuery(fieldName string, values []string) *map[string]interface{}
+	BuildTermQuery(fieldName string, value string) *map[string]interface{}
+	BuildBoolQuery(boolType string, values *[]interface{}) *map[string]interface{}
+	BuildNestedQuery(path string, query *map[string]interface{}) *map[string]interface{}
+	SetResponseSearchConfig(config ResponseSearchConfig)
+}
+
 type Store[T any] struct {
 	es              *elasticsearch.Client
 	timeout         time.Duration
@@ -51,7 +64,11 @@ type Pagination struct {
 	TotalDoc  int `json:"total_doc,omitempty"`
 	TotalPage int `json:"total_page,omitempty"`
 	Limit     int `json:"limit,omitempty"`
-	Offset    int `json:"offset"`
+	Offset    int `json:"offset,omitempty"`
+}
+
+func NewStoreSrv[T any](esClient *elasticsearch.Client, indexName string) StoreSrv[T] {
+	return &Store[T]{es: esClient, indexName: indexName}
 }
 
 func NewStore[T any](esClient *elasticsearch.Client, indexName string, timeOut time.Duration) *Store[T] {
@@ -63,11 +80,12 @@ func (s *Store[T]) SetResponseSearchConfig(config ResponseSearchConfig) {
 	s.resSearchConfig = config
 }
 
-func (s *Store[T]) SearchByQuery(query *bytes.Buffer, resp *SearchResults[T]) error {
+func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults[T], error) {
+	result := SearchResults[T]{}
 	var mapRes map[string]interface{}
 	es := s.es
 	res, err := es.Search(
-		es.Search.WithContext(context.Background()),
+		es.Search.WithContext(ctx),
 		es.Search.WithIndex(s.indexName),
 		es.Search.WithBody(query),
 		es.Search.WithTrackTotalHits(true),
@@ -75,25 +93,25 @@ func (s *Store[T]) SearchByQuery(query *bytes.Buffer, resp *SearchResults[T]) er
 	)
 
 	if err != nil {
-		return err
+		return result, err
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
 		var e map[string]interface{}
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			return err
+			return result, err
 		} else {
 			err = fmt.Errorf("[%s] %s: %s",
 				res.Status(),
 				e["error"].(map[string]interface{})["type"],
 				e["error"].(map[string]interface{})["reason"])
-			return err
+			return result, err
 		}
 	}
 
 	if err := json.NewDecoder(res.Body).Decode(&mapRes); err != nil {
-		return err
+		return result, err
 	}
 
 	var hitList []Hit[T]
@@ -108,20 +126,20 @@ func (s *Store[T]) SearchByQuery(query *bytes.Buffer, resp *SearchResults[T]) er
 		source := doc.(map[string]interface{})["_source"]
 		b, err := json.Marshal(source)
 		if err != nil {
-			return err
+			return result, err
 		}
 		err = json.Unmarshal(b, &hit.Doc)
 		if err != nil {
-			return err
+			return result, err
 		}
 		hitList = append(hitList, hit)
 	}
 
-	// Set data response for pagination
-	resp.Data = hitList
-	resp.Pagination = setPagination(s.resSearchConfig.Size, s.resSearchConfig.From, int(total))
+	// // Set data response for pagination
+	result.Data = hitList
+	result.Pagination = setPagination(s.resSearchConfig.Size, s.resSearchConfig.From, int(total))
 
-	return nil
+	return result, nil
 }
 
 func (s *Store[T]) BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error) {
@@ -283,7 +301,7 @@ func (s *Store[T]) DeleteIndex(ctx context.Context, docId string) error {
 	defer cancel()
 	res, err := req.Do(ctx, s.es)
 	if err != nil {
-		return fmt.Errorf("Error getting response: %s", err)
+		return fmt.Errorf("error getting response: %v", err)
 	}
 	defer res.Body.Close()
 
@@ -303,7 +321,7 @@ func checkErrorRes(res *esapi.Response) error {
 		return ErrConflict
 	}
 	if res.IsError() {
-		return fmt.Errorf("Error indexing document ID=%d", res.Status())
+		return fmt.Errorf("Error indexing document ID=%v", res.Status())
 	}
 	var r map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
