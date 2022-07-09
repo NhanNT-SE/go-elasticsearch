@@ -1,19 +1,27 @@
 package model
 
 import (
+	"marketplace-backend/pkg/elastic"
 	"time"
 )
 
 type Token struct {
-	ContractAddress string    `bson:"contract_address"`
-	ID              string    `bson:"id"`
-	Owner           string    `bson:"owner"`
-	PreviousOwner   string    `bson:"previous_owner"`
-	Metadata        any       `bson:"metadata"`
-	MetadataRaw     string    `bson:"metadata_raw"`
-	UpdatedAt       time.Time `bson:"updated_at"`
+	ObjId           string                 `json:"_id" bson:"_id"`
+	ContractAddress string                 `json:"contract_address,omitempty" bson:"contract_address"`
+	ID              string                 `json:"id,omitempty" bson:"id"`
+	Owner           string                 `json:"owner,omitempty" bson:"owner"`
+	PreviousOwner   string                 `json:"-" bson:"previous_owner"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty" bson:"metadata"`
+	MetadataRaw     string                 `json:"-" bson:"metadata_raw"`
+	UpdatedAt       *time.Time             `json:"updated_at,omitempty" bson:"updated_at"`
 }
 
-func (Token) CollectionName() string {
-	return "token"
+type GetTokenListRes struct {
+	Pagination *elastic.Pagination `json:"pagination"`
+	Data       *[]Token            `json:"data,omitempty"`
+}
+
+type TokeReq struct {
+	IdToken      string
+	ContractAddr string
 }

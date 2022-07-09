@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"fmt"
+	"marketplace-backend/internal/model"
 	"marketplace-backend/pkg/elastic"
 	"time"
 
@@ -9,23 +11,23 @@ import (
 )
 
 type StorageNFTSrv interface {
-	InsertNFT(ctx context.Context, NFT NFTIndex, docId string) error
-	UpdateNFT(ctx context.Context, NFT NFTIndex, docId string) error
-	DeleteNFT(ctx context.Context, id string) error
-	FindNFTById(ctx context.Context, id string) (*NFTIndex, error)
-	SearchByQuery(ctx context.Context, nft SearchNFTRequest) (elastic.SearchResults[NFTIndex], error)
+	InsertNFT(ctx context.Context, NFT model.NFTIndex, docId string) error
+	UpdateNFT(ctx context.Context, NFT model.NFTIndex, docId string) error
+	DeleteNFT(ctx context.Context, docId string) error
+	FindNFTById(ctx context.Context, docId string) (*model.NFTIndex, error)
+	SearchByQuery(ctx context.Context, nft model.NFTSearchReq) (elastic.SearchResults, error)
 }
 
 type StorageNFT struct {
 	es        *elasticsearch.Client
 	indexName string
 	timeout   time.Duration
-	storeSrv  elastic.StoreSrv[NFTIndex]
+	storeSrv  elastic.StoreSrv[model.NFTIndex]
 }
 
 func NewStorageNFTSrv(es *elasticsearch.Client, timeout time.Duration) StorageNFTSrv {
 	indexName := "marketplace-nfts"
-	storeSrv := elastic.NewStoreSrv[NFTIndex](es, indexName)
+	storeSrv := elastic.NewStoreSrv[model.NFTIndex](es, indexName)
 	return &StorageNFT{
 		es:        es,
 		timeout:   timeout,
@@ -34,42 +36,7 @@ func NewStorageNFTSrv(es *elasticsearch.Client, timeout time.Duration) StorageNF
 	}
 }
 
-type NFTIndex struct {
-	Id              string     `json:"id,omitempty"`
-	ContractAddress string     `json:"contract_address,omitempty"`
-	Owner           string     `json:"owner,omitempty"`
-	Name            string     `json:"name,omitempty"`
-	Description     string     `json:"description,omitempty"`
-	Price           int        `json:"price,omitempty"`
-	SaleType        string     `json:"sale_type,omitempty"`
-	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
-	CreatedTime     *time.Time `json:"created_time,omitempty"`
-	LastSoldTime    *time.Time `json:"last_sold_time,omitempty"`
-	ListedTime      *time.Time `json:"listed_time,omitempty"`
-	Attributes      []NFTAttrs `json:"attributes,omitempty"`
-}
-
-type NFTAttrs struct {
-	TraitType    string `json:"trait_type,omitempty"`
-	DisplayValue string `json:"display_value,omitempty"`
-	Value        string `json:"value,omitempty"`
-}
-
-type SearchNFTRequest struct {
-	ResponseConfig elastic.ResponseSearchConfig `json:"responseConfig"`
-	Text           string                       `json:"text"`
-	Attrs          []AttrsReq                   `json:"attrs"`
-	SaleType       []string                     `json:"saleType"`
-	Price          elastic.RangeQueryReq        `json:"price"`
-}
-
-type AttrsReq struct {
-	TraitType    string   `json:"traitType"`
-	DisplayValue []string `json:"displayValue"`
-	Value        []string `json:"value"`
-}
-
-func (store *StorageNFT) InsertNFT(ctx context.Context, NFT NFTIndex, docId string) error {
+func (store *StorageNFT) InsertNFT(ctx context.Context, NFT model.NFTIndex, docId string) error {
 	storeSrv := store.storeSrv
 	ctx, cancel := context.WithTimeout(ctx, store.timeout)
 	defer cancel()
@@ -80,7 +47,7 @@ func (store *StorageNFT) InsertNFT(ctx context.Context, NFT NFTIndex, docId stri
 	return nil
 }
 
-func (store *StorageNFT) UpdateNFT(ctx context.Context, NFT NFTIndex, docId string) error {
+func (store *StorageNFT) UpdateNFT(ctx context.Context, NFT model.NFTIndex, docId string) error {
 	storeSrv := store.storeSrv
 	ctx, cancel := context.WithTimeout(ctx, store.timeout)
 	defer cancel()
@@ -103,12 +70,19 @@ func (store *StorageNFT) DeleteNFT(ctx context.Context, docId string) error {
 	return nil
 }
 
-func (store *StorageNFT) FindNFTById(ctx context.Context, id string) (*NFTIndex, error) {
-	return nil, nil
+func (store *StorageNFT) FindNFTById(ctx context.Context, docId string) (*model.NFTIndex, error) {
+	storeSrv := store.storeSrv
+	ctx, cancel := context.WithTimeout(ctx, store.timeout)
+	defer cancel()
+	data, err := storeSrv.FindIndexById(ctx, docId)
+	if err != nil {
+		return nil, err
+	}
+	return &data, nil
 }
 
-func (store *StorageNFT) SearchByQuery(ctx context.Context, req SearchNFTRequest) (elastic.SearchResults[NFTIndex], error) {
-	result := elastic.SearchResults[NFTIndex]{}
+func (store *StorageNFT) SearchByQuery(ctx context.Context, req model.NFTSearchReq) (elastic.SearchResults, error) {
+	result := elastic.SearchResults{}
 	storeSrv := store.storeSrv
 	var must []interface{}
 
@@ -121,8 +95,9 @@ func (store *StorageNFT) SearchByQuery(ctx context.Context, req SearchNFTRequest
 	if len(req.SaleType) > 0 {
 		must = append(must, storeSrv.BuildTermsQuery("sale_type", req.SaleType))
 	}
-	if (elastic.RangeQueryReq{}) != req.Price {
-		mRange := storeSrv.BuildRangeQuery(&req.Price, "price")
+
+	if (model.NFTPriceSearchReq{} != req.Price) && (elastic.RangeQueryReq{} != req.Price.Range) {
+		mRange := storeSrv.BuildRangeQuery(&req.Price.Range, fmt.Sprintf("price.%v", req.Price.Currency))
 		must = append(must, mRange)
 	}
 
@@ -149,7 +124,6 @@ func (store *StorageNFT) SearchByQuery(ctx context.Context, req SearchNFTRequest
 	}
 
 	mapQuery := storeSrv.BuildBoolQuery("must", &must)
-
 	storeSrv.SetResponseSearchConfig(req.ResponseConfig)
 	queryBuild, err := storeSrv.BuildQuery(mapQuery)
 	if err != nil {

@@ -2,14 +2,13 @@ package vmp
 
 import (
 	"fmt"
-	"log"
+	"marketplace-backend/internal/model"
 	"marketplace-backend/pkg/elastic"
-	"marketplace-backend/pkg/storage"
 
 	"net/http"
 )
 
-func (h *Handler) SearchNFT(r *http.Request, req *storage.SearchNFTRequest, resp *elastic.SearchResults[storage.NFTIndex]) error {
+func (h *Handler) SearchNFT(r *http.Request, req *model.NFTSearchReq, resp *model.GetTokenListRes) error {
 	if req.ResponseConfig.Size < 1 {
 		return fmt.Errorf("limit: min=1")
 	}
@@ -18,24 +17,21 @@ func (h *Handler) SearchNFT(r *http.Request, req *storage.SearchNFTRequest, resp
 		return fmt.Errorf("offset: min=0")
 	}
 
-	data, err := h.storageNFTSrv.SearchByQuery(r.Context(), *req)
+	if req.Price.Currency == "" {
+		return fmt.Errorf("required field: currency")
+	}
+
+	data, err := h.tokenSrv.GetTokenList(r.Context(), req)
 	if err != nil {
 		return err
 	}
-	idList := []string{}
 
-	for _, doc := range data.Data {
-		idList = append(idList, doc.Id)
-	}
-
-	// model.Token.GetTokenByIdList(idList)
-	h.tokenSrv.GetTokenList(idList)
-	// log.Println(idList)
 	*resp = data
+
 	return nil
 }
 
-func (h *Handler) CreateNFT(r *http.Request, req *storage.NFTIndex, resp *string) error {
+func (h *Handler) CreateNFT(r *http.Request, req *model.NFTIndex, resp *string) error {
 	id := "123456"
 	err := h.storageNFTSrv.InsertNFT(r.Context(), *req, id)
 	if err != nil {
@@ -44,7 +40,7 @@ func (h *Handler) CreateNFT(r *http.Request, req *storage.NFTIndex, resp *string
 	*resp = "NFT created"
 	return nil
 }
-func (h *Handler) UpdateNFT(r *http.Request, req *storage.NFTIndex, resp *string) error {
+func (h *Handler) UpdateNFT(r *http.Request, req *model.NFTIndex, resp *string) error {
 	id := "123456"
 	err := h.storageNFTSrv.UpdateNFT(r.Context(), *req, id)
 	if err != nil {
@@ -54,15 +50,26 @@ func (h *Handler) UpdateNFT(r *http.Request, req *storage.NFTIndex, resp *string
 	return nil
 }
 
+func (h *Handler) FindNFTById(r *http.Request, req *elastic.DeleteIndexReq, resp *interface{}) error {
+	if req.DocId == "" {
+		return fmt.Errorf("doc_id is required")
+	}
+	data, err := h.storageNFTSrv.FindNFTById(r.Context(), req.DocId)
+	if err != nil {
+		return err
+	}
+	*resp = data
+	return nil
+}
+
 func (h *Handler) DeleteNFT(r *http.Request, req *elastic.DeleteIndexReq, resp *string) error {
 	if req.DocId == "" {
 		return fmt.Errorf("doc_id is required")
 	}
 	err := h.storageNFTSrv.DeleteNFT(r.Context(), req.DocId)
 	if err != nil {
-		log.Println(err)
 		return err
 	}
-	*resp = "NFT deleted"
+	*resp = "NFT Deleted"
 	return nil
 }

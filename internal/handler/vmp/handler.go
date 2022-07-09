@@ -31,7 +31,7 @@ func NewRPCHandler(cfg config.ServerConfig) *Handler {
 	// redisClient := must.ConnectRedis(ctx, cfg.Redis)
 	esClient := must.ConnectElasticsearch(&cfg.Elasticsearch)
 	storageNFTSrv := storage.NewStorageNFTSrv(esClient, time.Second*10)
-	tokenSrv := service.NewTokenSrv(db, cfg.Mongo)
+	tokenSrv := service.NewTokenSrv(db, cfg.Mongo, storageNFTSrv)
 	return &Handler{
 		cfg: cfg,
 		log: logger.New(),

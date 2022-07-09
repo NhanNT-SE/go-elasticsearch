@@ -114,3 +114,40 @@ GET /marketplace-nfts/_search
     }
   }
 }
+
+
+
+PUT /marketplace-nfts
+{
+  "mappings" : {
+    "properties" : {
+      "doc_id": {"type": "text", "index": false},
+      "id" : { "type" : "keyword" },
+      "contract_address" : { "type" : "keyword" },
+      "owner": { "type": "keyword" },
+      "name" : { "type" : "text" },
+      "description" : { "type" : "text" },
+      "updated_at":{ "type": "date" },
+      "created_time" : { "type" : "date" },
+      "last_sold_time" : { "type" : "date" },
+      "listed_time" : { "type" : "date" },
+      "price" : { 
+        "type" : "object",
+        "properties": {
+          "eth": {"type": "integer"},
+          "vngt": {"type": "unsigned_long"}
+        }
+      
+      },
+      "sale_type" : { "type" : "keyword", "normalizer": "lowercase" },
+      "attributes" : {
+        "type" : "nested",
+        "properties" : {
+          "display_value" : { "type" : "keyword", "normalizer": "lowercase" },
+          "trait_type" : { "type" : "keyword", "normalizer": "lowercase" },
+          "value" : { "type" : "keyword", "normalizer": "lowercase" }
+        }
+      }
+    }
+  }
+}

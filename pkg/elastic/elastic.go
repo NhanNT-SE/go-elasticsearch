@@ -23,7 +23,8 @@ type StoreSrv[T any] interface {
 	CreateIndex(ctx context.Context, index T, docId string) error
 	UpdateIndex(ctx context.Context, index T, docId string) error
 	DeleteIndex(ctx context.Context, docId string) error
-	SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults[T], error)
+	FindIndexById(ctx context.Context, docId string) (T, error)
+	SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults, error)
 	BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error)
 	BuildRangeQuery(rangeReq *RangeQueryReq, fieldName string) *map[string]interface{}
 	BuildMatchAllQuery() *map[string]interface{}
@@ -42,20 +43,15 @@ type Store[T any] struct {
 	resSearchConfig ResponseSearchConfig
 }
 
-type Hit[T any] struct {
-	Id  string `json:"doc_id"`
-	Doc T      `json:"doc,omitempty"`
-}
-
 type ResponseSearchConfig struct {
-	Source any `json:"source" elastic:"_source"`
-	Size   int `json:"limit" elastic:"size"`
-	From   int `json:"offset" elastic:"from"`
+	Source []string `json:"source" elastic:"_source"`
+	Size   int      `json:"limit" elastic:"size"`
+	From   int      `json:"offset" elastic:"from"`
 }
 
-type SearchResults[T any] struct {
+type SearchResults struct {
 	Pagination Pagination `json:"pagination"`
-	Data       []Hit[T]   `json:"data,omitempty"`
+	Data       []string   `json:"data,omitempty"`
 }
 
 type RangeQueryReq struct {
@@ -64,10 +60,10 @@ type RangeQueryReq struct {
 }
 
 type Pagination struct {
-	TotalDoc  int `json:"total_doc,omitempty"`
-	TotalPage int `json:"total_page,omitempty"`
-	Limit     int `json:"limit,omitempty"`
-	Offset    int `json:"offset,omitempty"`
+	TotalDoc  int `json:"total_doc"`
+	TotalPage int `json:"total_page"`
+	Limit     int `json:"limit"`
+	Offset    int `json:"offset"`
 }
 
 type DeleteIndexReq struct {
@@ -87,8 +83,8 @@ func (s *Store[T]) SetResponseSearchConfig(config ResponseSearchConfig) {
 	s.resSearchConfig = config
 }
 
-func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults[T], error) {
-	result := SearchResults[T]{}
+func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults, error) {
+	result := SearchResults{}
 	var mapRes map[string]interface{}
 	es := s.es
 	res, err := es.Search(
@@ -121,28 +117,17 @@ func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (Sear
 		return result, err
 	}
 
-	var hitList []Hit[T]
+	var idList []string
 	hits := mapRes["hits"].(map[string]interface{})
 	docs := hits["hits"].([]interface{})
 	total := hits["total"].((map[string]interface{}))["value"].(float64)
 
 	for _, doc := range docs {
-		var hit Hit[T]
 		docId := doc.(map[string]interface{})["_id"].(string)
-		hit.Id = docId
-		source := doc.(map[string]interface{})["_source"]
-		b, err := json.Marshal(source)
-		if err != nil {
-			return result, err
-		}
-		err = json.Unmarshal(b, &hit.Doc)
-		if err != nil {
-			return result, err
-		}
-		hitList = append(hitList, hit)
-	}
 
-	result.Data = hitList
+		idList = append(idList, docId)
+	}
+	result.Data = idList
 	result.Pagination = setPagination(s.resSearchConfig.Size, s.resSearchConfig.From, int(total))
 
 	return result, nil
@@ -162,16 +147,14 @@ func (s *Store[T]) BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, 
 		for i := 0; i < v.NumField(); i++ {
 			tag := typeOfS.Field(i).Tag.Get("elastic")
 			value := v.Field(i).Interface()
-
 			if value != nil && !reflect.ValueOf(value).IsZero() {
-				if tag == "_source" && len(value.([]interface{})) == 0 {
-					value = false
-				}
 				query[tag] = value
 			}
 		}
 
 	}
+
+	query["_source"] = false
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(&query); err != nil {
@@ -318,6 +301,45 @@ func (s *Store[T]) DeleteIndex(ctx context.Context, docId string) error {
 	return nil
 }
 
+func (s *Store[T]) FindIndexById(ctx context.Context, docId string) (T, error) {
+	var result T
+
+	req := esapi.GetRequest{
+		Index:      s.indexName,
+		DocumentID: docId,
+	}
+	res, err := req.Do(ctx, s.es)
+
+	if err != nil {
+		return result, err
+	}
+	defer res.Body.Close()
+
+	err = checkErrorRes(res)
+	if err != nil {
+		return result, err
+	}
+
+	var mapRes map[string]interface{}
+
+	if err := json.NewDecoder(res.Body).Decode(&mapRes); err != nil {
+		return result, fmt.Errorf("find index by id decode: %w", err)
+	}
+
+	source := mapRes["_source"]
+
+	b, err := json.Marshal(source)
+	if err != nil {
+		return result, err
+	}
+	err = json.Unmarshal(b, &result)
+	if err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
 func checkErrorRes(res *esapi.Response) error {
 	if res.StatusCode == 404 {
 		return ErrNotFound
@@ -329,12 +351,10 @@ func checkErrorRes(res *esapi.Response) error {
 	if res.IsError() {
 		return fmt.Errorf("error indexing document ID=%v", res.Status())
 	}
-	var r map[string]interface{}
-	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-		return fmt.Errorf("error parsing the response body: %s", err)
-	}
+
 	return nil
 }
+
 func setPagination(size, from, total int) Pagination {
 	pagination := Pagination{}
 	pagination.TotalDoc = total
