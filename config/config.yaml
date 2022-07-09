@@ -1,9 +1,12 @@
 http_address: 0.0.0.0:9000
 environment: PROD
 
+# mongo:
+#   uri: mongodb://marketplace:marketplace@34.143.169.236:27017/marketplace
+#   database: marketplace
 mongo:
-  uri: mongodb://test11:test11@34.143.169.236:27017/dbtest11
-  database: dbtest11
+  uri: mongodb://localhost:27017/marketplace
+  database: marketplace
 
 redis:
   addr: 34.124.139.128:6379

@@ -4,13 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"marketplace-backend/config"
-	"marketplace-backend/pkg/logger"
 
 	"github.com/elastic/go-elasticsearch/v8"
-)
-
-var (
-	log = logger.New()
 )
 
 func ConnectElasticsearch(config *config.ElasticsearchConfig) *elasticsearch.Client {

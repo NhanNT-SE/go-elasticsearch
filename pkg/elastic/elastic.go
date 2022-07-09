@@ -20,6 +20,9 @@ var (
 )
 
 type StoreSrv[T any] interface {
+	CreateIndex(ctx context.Context, index T, docId string) error
+	UpdateIndex(ctx context.Context, index T, docId string) error
+	DeleteIndex(ctx context.Context, docId string) error
 	SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults[T], error)
 	BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error)
 	BuildRangeQuery(rangeReq *RangeQueryReq, fieldName string) *map[string]interface{}
@@ -41,7 +44,7 @@ type Store[T any] struct {
 
 type Hit[T any] struct {
 	Id  string `json:"doc_id"`
-	Doc T      `json:"doc"`
+	Doc T      `json:"doc,omitempty"`
 }
 
 type ResponseSearchConfig struct {
@@ -65,6 +68,10 @@ type Pagination struct {
 	TotalPage int `json:"total_page,omitempty"`
 	Limit     int `json:"limit,omitempty"`
 	Offset    int `json:"offset,omitempty"`
+}
+
+type DeleteIndexReq struct {
+	DocId string `json:"doc_id"`
 }
 
 func NewStoreSrv[T any](esClient *elasticsearch.Client, indexName string) StoreSrv[T] {
@@ -135,7 +142,6 @@ func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (Sear
 		hitList = append(hitList, hit)
 	}
 
-	// // Set data response for pagination
 	result.Data = hitList
 	result.Pagination = setPagination(s.resSearchConfig.Size, s.resSearchConfig.From, int(total))
 
@@ -171,6 +177,8 @@ func (s *Store[T]) BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, 
 	if err := json.NewEncoder(&buf).Encode(&query); err != nil {
 		return nil, err
 	}
+
+	// log.Println(&buf)
 	return &buf, nil
 }
 
@@ -244,10 +252,10 @@ func (s *Store[T]) BuildNestedQuery(path string, query *map[string]interface{}) 
 	return &m
 }
 
-func (s *Store[T]) CreateIndex(index *T, docId string) error {
+func (s *Store[T]) CreateIndex(ctx context.Context, index T, docId string) error {
 	data, err := json.Marshal(index)
 	if err != nil {
-		return fmt.Errorf("Error marshaling document: %s", err)
+		return err
 	}
 
 	req := esapi.IndexRequest{
@@ -255,9 +263,9 @@ func (s *Store[T]) CreateIndex(index *T, docId string) error {
 		DocumentID: docId,
 		Body:       bytes.NewReader(data),
 	}
-	res, err := req.Do(context.Background(), s.es)
+	res, err := req.Do(ctx, s.es)
 	if err != nil {
-		return fmt.Errorf("Error getting response: %s", err)
+		return err
 	}
 	defer res.Body.Close()
 
@@ -268,10 +276,10 @@ func (s *Store[T]) CreateIndex(index *T, docId string) error {
 	return nil
 }
 
-func (s *Store[T]) UpdateIndex(index *T, docId string) error {
+func (s *Store[T]) UpdateIndex(ctx context.Context, index T, docId string) error {
 	data, err := json.Marshal(index)
 	if err != nil {
-		return fmt.Errorf("Error marshaling document: %s", err)
+		return fmt.Errorf("error marshaling document: %s", err)
 	}
 
 	req := esapi.UpdateRequest{
@@ -279,9 +287,9 @@ func (s *Store[T]) UpdateIndex(index *T, docId string) error {
 		DocumentID: docId,
 		Body:       bytes.NewReader([]byte(fmt.Sprintf(`{"doc":%s}`, data))),
 	}
-	res, err := req.Do(context.Background(), s.es)
+	res, err := req.Do(ctx, s.es)
 	if err != nil {
-		return fmt.Errorf("Error getting response: %s", err)
+		return fmt.Errorf("error getting response: %s", err)
 	}
 	defer res.Body.Close()
 
@@ -297,11 +305,9 @@ func (s *Store[T]) DeleteIndex(ctx context.Context, docId string) error {
 		Index:      s.indexName,
 		DocumentID: docId,
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
 	res, err := req.Do(ctx, s.es)
 	if err != nil {
-		return fmt.Errorf("error getting response: %v", err)
+		return err
 	}
 	defer res.Body.Close()
 
@@ -321,11 +327,11 @@ func checkErrorRes(res *esapi.Response) error {
 		return ErrConflict
 	}
 	if res.IsError() {
-		return fmt.Errorf("Error indexing document ID=%v", res.Status())
+		return fmt.Errorf("error indexing document ID=%v", res.Status())
 	}
 	var r map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-		return fmt.Errorf("Error parsing the response body: %s", err)
+		return fmt.Errorf("error parsing the response body: %s", err)
 	}
 	return nil
 }

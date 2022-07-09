@@ -9,10 +9,10 @@ import (
 )
 
 type StorageNFTSrv interface {
-	Insert(ctx context.Context, NFT NFTIndex) error
-	Update(ctx context.Context, NFT NFTIndex) error
-	Delete(ctx context.Context, id string) error
-	FindOne(ctx context.Context, id string) (*NFTIndex, error)
+	InsertNFT(ctx context.Context, NFT NFTIndex, docId string) error
+	UpdateNFT(ctx context.Context, NFT NFTIndex, docId string) error
+	DeleteNFT(ctx context.Context, id string) error
+	FindNFTById(ctx context.Context, id string) (*NFTIndex, error)
 	SearchByQuery(ctx context.Context, nft SearchNFTRequest) (elastic.SearchResults[NFTIndex], error)
 }
 
@@ -35,24 +35,24 @@ func NewStorageNFTSrv(es *elasticsearch.Client, timeout time.Duration) StorageNF
 }
 
 type NFTIndex struct {
-	NftId           string     `json:"nft_id,omitempty"`
-	CollectionId    string     `json:"collection_id,omitempty"`
+	Id              string     `json:"id,omitempty"`
+	ContractAddress string     `json:"contract_address,omitempty"`
+	Owner           string     `json:"owner,omitempty"`
 	Name            string     `json:"name,omitempty"`
 	Description     string     `json:"description,omitempty"`
 	Price           int        `json:"price,omitempty"`
 	SaleType        string     `json:"sale_type,omitempty"`
+	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
 	CreatedTime     *time.Time `json:"created_time,omitempty"`
 	LastSoldTime    *time.Time `json:"last_sold_time,omitempty"`
 	ListedTime      *time.Time `json:"listed_time,omitempty"`
-	BackgroundColor string     `json:"background_color,omitempty"`
-	Image           string     `json:"image,omitempty"`
 	Attributes      []NFTAttrs `json:"attributes,omitempty"`
 }
 
 type NFTAttrs struct {
 	TraitType    string `json:"trait_type,omitempty"`
 	DisplayValue string `json:"display_value,omitempty"`
-	Value        int    `json:"value,omitempty"`
+	Value        string `json:"value,omitempty"`
 }
 
 type SearchNFTRequest struct {
@@ -66,21 +66,44 @@ type SearchNFTRequest struct {
 type AttrsReq struct {
 	TraitType    string   `json:"traitType"`
 	DisplayValue []string `json:"displayValue"`
+	Value        []string `json:"value"`
 }
 
-func (store *StorageNFT) Insert(ctx context.Context, NFT NFTIndex) error {
+func (store *StorageNFT) InsertNFT(ctx context.Context, NFT NFTIndex, docId string) error {
+	storeSrv := store.storeSrv
+	ctx, cancel := context.WithTimeout(ctx, store.timeout)
+	defer cancel()
+	err := storeSrv.CreateIndex(ctx, NFT, docId)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (store *StorageNFT) Update(ctx context.Context, NFT NFTIndex) error {
+func (store *StorageNFT) UpdateNFT(ctx context.Context, NFT NFTIndex, docId string) error {
+	storeSrv := store.storeSrv
+	ctx, cancel := context.WithTimeout(ctx, store.timeout)
+	defer cancel()
+
+	err := storeSrv.UpdateIndex(ctx, NFT, docId)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (store *StorageNFT) Delete(ctx context.Context, id string) error {
+func (store *StorageNFT) DeleteNFT(ctx context.Context, docId string) error {
+	storeSrv := store.storeSrv
+	ctx, cancel := context.WithTimeout(ctx, store.timeout)
+	defer cancel()
+	err := storeSrv.DeleteIndex(ctx, docId)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (store *StorageNFT) FindOne(ctx context.Context, id string) (*NFTIndex, error) {
+func (store *StorageNFT) FindNFTById(ctx context.Context, id string) (*NFTIndex, error) {
 	return nil, nil
 }
 
@@ -112,6 +135,9 @@ func (store *StorageNFT) SearchByQuery(ctx context.Context, req SearchNFTRequest
 			if len(attr.DisplayValue) > 0 {
 
 				nestedMust = append(nestedMust, storeSrv.BuildTermsQuery("attributes.display_value", attr.DisplayValue))
+			}
+			if len(attr.Value) > 0 {
+				nestedMust = append(nestedMust, storeSrv.BuildTermsQuery("attributes.value", attr.Value))
 			}
 
 			must = append(must, storeSrv.BuildNestedQuery(
