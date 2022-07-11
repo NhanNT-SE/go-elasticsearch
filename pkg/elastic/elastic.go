@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
+	"marketplace-backend/model"
 	"reflect"
 	"time"
 
@@ -20,50 +20,28 @@ var (
 )
 
 type StoreSrv[T any] interface {
-	CreateIndex(ctx context.Context, index T, docId string) error
+	InsertIndex(ctx context.Context, index T, docId string) error
 	UpdateIndex(ctx context.Context, index T, docId string) error
 	DeleteIndex(ctx context.Context, docId string) error
-	FindIndexById(ctx context.Context, docId string) (T, error)
-	SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults, error)
-	BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error)
-	BuildRangeQuery(rangeReq *RangeQueryReq, fieldName string) *map[string]interface{}
+	DeleteIndexByQuery(ctx context.Context, query *bytes.Buffer) error
+	SearchByQuery(ctx context.Context, query *bytes.Buffer) (model.SearchResults, error)
+	BuildSearchQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error)
+	BuildModifyQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error)
+	BuildRangeQuery(rangeReq *model.RangeQueryReq, fieldName string) *map[string]interface{}
 	BuildMatchAllQuery() *map[string]interface{}
 	BuildMultiMatchQuery(query string, fields []string, isFuzzy bool, fuzziness int) *map[string]interface{}
 	BuildTermsQuery(fieldName string, values []string) *map[string]interface{}
 	BuildTermQuery(fieldName string, value string) *map[string]interface{}
 	BuildBoolQuery(boolType string, values *[]interface{}) *map[string]interface{}
 	BuildNestedQuery(path string, query *map[string]interface{}) *map[string]interface{}
-	SetResponseSearchConfig(config ResponseSearchConfig)
+	SetResponseSearchConfig(config model.ResponseSearchConfig)
 }
 
 type Store[T any] struct {
 	es              *elasticsearch.Client
 	timeout         time.Duration
 	indexName       string
-	resSearchConfig ResponseSearchConfig
-}
-
-type ResponseSearchConfig struct {
-	Source []string `json:"source" elastic:"_source"`
-	Size   int      `json:"limit" elastic:"size"`
-	From   int      `json:"offset" elastic:"from"`
-}
-
-type SearchResults struct {
-	Pagination Pagination `json:"pagination"`
-	Data       []string   `json:"data,omitempty"`
-}
-
-type RangeQueryReq struct {
-	From any `json:"from"`
-	To   any `json:"to"`
-}
-
-type Pagination struct {
-	TotalDoc  int `json:"total_doc"`
-	TotalPage int `json:"total_page"`
-	Limit     int `json:"limit"`
-	Offset    int `json:"offset"`
+	resSearchConfig model.ResponseSearchConfig
 }
 
 type DeleteIndexReq struct {
@@ -79,12 +57,12 @@ func NewStore[T any](esClient *elasticsearch.Client, indexName string, timeOut t
 	return &s
 }
 
-func (s *Store[T]) SetResponseSearchConfig(config ResponseSearchConfig) {
+func (s *Store[T]) SetResponseSearchConfig(config model.ResponseSearchConfig) {
 	s.resSearchConfig = config
 }
 
-func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (SearchResults, error) {
-	result := SearchResults{}
+func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (model.SearchResults, error) {
+	result := model.SearchResults{}
 	var mapRes map[string]interface{}
 	es := s.es
 	res, err := es.Search(
@@ -100,17 +78,9 @@ func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (Sear
 	}
 	defer res.Body.Close()
 
-	if res.IsError() {
-		var e map[string]interface{}
-		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			return result, err
-		} else {
-			err = fmt.Errorf("[%s] %s: %s",
-				res.Status(),
-				e["error"].(map[string]interface{})["type"],
-				e["error"].(map[string]interface{})["reason"])
-			return result, err
-		}
+	err = checkErrorRes(res)
+	if err != nil {
+		return result, err
 	}
 
 	if err := json.NewDecoder(res.Body).Decode(&mapRes); err != nil {
@@ -133,7 +103,7 @@ func (s *Store[T]) SearchByQuery(ctx context.Context, query *bytes.Buffer) (Sear
 	return result, nil
 }
 
-func (s *Store[T]) BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error) {
+func (s *Store[T]) BuildSearchQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error) {
 	query := map[string]interface{}{
 		"query": *mapQuery,
 	}
@@ -161,11 +131,23 @@ func (s *Store[T]) BuildQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, 
 		return nil, err
 	}
 
-	// log.Println(&buf)
 	return &buf, nil
 }
 
-func (s *Store[T]) BuildRangeQuery(rangeReq *RangeQueryReq, fieldName string) *map[string]interface{} {
+func (s *Store[T]) BuildModifyQuery(mapQuery *map[string]interface{}) (*bytes.Buffer, error) {
+	query := map[string]interface{}{
+		"query": *mapQuery,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(&query); err != nil {
+		return nil, err
+	}
+
+	return &buf, nil
+}
+
+func (s *Store[T]) BuildRangeQuery(rangeReq *model.RangeQueryReq, fieldName string) *map[string]interface{} {
 	mRange := make(map[string]interface{})
 	m := make(map[string]interface{})
 
@@ -235,12 +217,11 @@ func (s *Store[T]) BuildNestedQuery(path string, query *map[string]interface{}) 
 	return &m
 }
 
-func (s *Store[T]) CreateIndex(ctx context.Context, index T, docId string) error {
+func (s *Store[T]) InsertIndex(ctx context.Context, index T, docId string) error {
 	data, err := json.Marshal(index)
 	if err != nil {
 		return err
 	}
-
 	req := esapi.IndexRequest{
 		Index:      s.indexName,
 		DocumentID: docId,
@@ -270,6 +251,7 @@ func (s *Store[T]) UpdateIndex(ctx context.Context, index T, docId string) error
 		DocumentID: docId,
 		Body:       bytes.NewReader([]byte(fmt.Sprintf(`{"doc":%s}`, data))),
 	}
+
 	res, err := req.Do(ctx, s.es)
 	if err != nil {
 		return fmt.Errorf("error getting response: %s", err)
@@ -301,43 +283,30 @@ func (s *Store[T]) DeleteIndex(ctx context.Context, docId string) error {
 	return nil
 }
 
-func (s *Store[T]) FindIndexById(ctx context.Context, docId string) (T, error) {
-	var result T
-
-	req := esapi.GetRequest{
-		Index:      s.indexName,
-		DocumentID: docId,
-	}
-	res, err := req.Do(ctx, s.es)
+func (s *Store[T]) DeleteIndexByQuery(ctx context.Context, query *bytes.Buffer) error {
+	var mapRes map[string]interface{}
+	es := s.es
+	res, err := es.DeleteByQuery(
+		[]string{s.indexName},
+		query,
+		es.DeleteByQuery.WithContext(ctx),
+		es.DeleteByQuery.WithRefresh(true),
+	)
 
 	if err != nil {
-		return result, err
+		return err
 	}
 	defer res.Body.Close()
 
 	err = checkErrorRes(res)
 	if err != nil {
-		return result, err
+		return err
 	}
-
-	var mapRes map[string]interface{}
 
 	if err := json.NewDecoder(res.Body).Decode(&mapRes); err != nil {
-		return result, fmt.Errorf("find index by id decode: %w", err)
+		return err
 	}
-
-	source := mapRes["_source"]
-
-	b, err := json.Marshal(source)
-	if err != nil {
-		return result, err
-	}
-	err = json.Unmarshal(b, &result)
-	if err != nil {
-		return result, err
-	}
-
-	return result, nil
+	return nil
 }
 
 func checkErrorRes(res *esapi.Response) error {
@@ -349,20 +318,25 @@ func checkErrorRes(res *esapi.Response) error {
 		return ErrConflict
 	}
 	if res.IsError() {
-		return fmt.Errorf("error indexing document ID=%v", res.Status())
+		var e map[string]interface{}
+		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+			return err
+		} else {
+			err = fmt.Errorf("[%s] %s: %s",
+				res.Status(),
+				e["error"].(map[string]interface{})["type"],
+				e["error"].(map[string]interface{})["reason"])
+			return err
+		}
 	}
 
 	return nil
 }
 
-func setPagination(size, from, total int) Pagination {
-	pagination := Pagination{}
-	pagination.TotalDoc = total
-	pagination.Limit = size
-	pagination.Offset = from
-	if total > 0 {
-		totalPage := math.Ceil(float64(total) / float64(size))
-		pagination.TotalPage = int(totalPage)
-	}
+func setPagination(size, from, total int) model.Paging {
+	pagination := model.Paging{}
+	pagination.Total = uint(total)
+	pagination.Limit = uint(size)
+	pagination.Offset = uint(from)
 	return pagination
 }

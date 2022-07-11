@@ -23,10 +23,7 @@ elasticsearch:
   addr: https://localhost:9200
   username: elastic
   password: aL-=pNCVGm7-WH+MJsfv
-# elasticsearch:
-#   addr: https://elasticsearch-0.elasticsearch-all.elk.svc.cluster.local:9200
-#   username: marketplace-0
-#   password: marketplace-0
+
 
 # elasticsearch:
 #   addr: https://es.rndengineer.org

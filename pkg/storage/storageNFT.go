@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
-	"marketplace-backend/internal/model"
+	"marketplace-backend/model"
 	"marketplace-backend/pkg/elastic"
 	"time"
 
@@ -13,9 +13,8 @@ import (
 type StorageNFTSrv interface {
 	InsertNFT(ctx context.Context, NFT model.NFTIndex, docId string) error
 	UpdateNFT(ctx context.Context, NFT model.NFTIndex, docId string) error
-	DeleteNFT(ctx context.Context, docId string) error
-	FindNFTById(ctx context.Context, docId string) (*model.NFTIndex, error)
-	SearchByQuery(ctx context.Context, nft model.NFTSearchReq) (elastic.SearchResults, error)
+	DeleteNFT(ctx context.Context, token model.Token) error
+	SearchByQuery(ctx context.Context, nft model.NFTIndexSearchReq) (model.SearchResults, error)
 }
 
 type StorageNFT struct {
@@ -40,7 +39,7 @@ func (store *StorageNFT) InsertNFT(ctx context.Context, NFT model.NFTIndex, docI
 	storeSrv := store.storeSrv
 	ctx, cancel := context.WithTimeout(ctx, store.timeout)
 	defer cancel()
-	err := storeSrv.CreateIndex(ctx, NFT, docId)
+	err := storeSrv.InsertIndex(ctx, NFT, docId)
 	if err != nil {
 		return err
 	}
@@ -59,30 +58,8 @@ func (store *StorageNFT) UpdateNFT(ctx context.Context, NFT model.NFTIndex, docI
 	return nil
 }
 
-func (store *StorageNFT) DeleteNFT(ctx context.Context, docId string) error {
-	storeSrv := store.storeSrv
-	ctx, cancel := context.WithTimeout(ctx, store.timeout)
-	defer cancel()
-	err := storeSrv.DeleteIndex(ctx, docId)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (store *StorageNFT) FindNFTById(ctx context.Context, docId string) (*model.NFTIndex, error) {
-	storeSrv := store.storeSrv
-	ctx, cancel := context.WithTimeout(ctx, store.timeout)
-	defer cancel()
-	data, err := storeSrv.FindIndexById(ctx, docId)
-	if err != nil {
-		return nil, err
-	}
-	return &data, nil
-}
-
-func (store *StorageNFT) SearchByQuery(ctx context.Context, req model.NFTSearchReq) (elastic.SearchResults, error) {
-	result := elastic.SearchResults{}
+func (store *StorageNFT) SearchByQuery(ctx context.Context, req model.NFTIndexSearchReq) (model.SearchResults, error) {
+	result := model.SearchResults{}
 	storeSrv := store.storeSrv
 	var must []interface{}
 
@@ -96,7 +73,7 @@ func (store *StorageNFT) SearchByQuery(ctx context.Context, req model.NFTSearchR
 		must = append(must, storeSrv.BuildTermsQuery("sale_type", req.SaleType))
 	}
 
-	if (model.NFTPriceSearchReq{} != req.Price) && (elastic.RangeQueryReq{} != req.Price.Range) {
+	if (model.NFTIndexPriceSearchReq{} != req.Price) && (model.RangeQueryReq{} != req.Price.Range) {
 		mRange := storeSrv.BuildRangeQuery(&req.Price.Range, fmt.Sprintf("price.%v", req.Price.Currency))
 		must = append(must, mRange)
 	}
@@ -125,7 +102,7 @@ func (store *StorageNFT) SearchByQuery(ctx context.Context, req model.NFTSearchR
 
 	mapQuery := storeSrv.BuildBoolQuery("must", &must)
 	storeSrv.SetResponseSearchConfig(req.ResponseConfig)
-	queryBuild, err := storeSrv.BuildQuery(mapQuery)
+	queryBuild, err := storeSrv.BuildSearchQuery(mapQuery)
 	if err != nil {
 		return result, err
 	}
@@ -137,4 +114,29 @@ func (store *StorageNFT) SearchByQuery(ctx context.Context, req model.NFTSearchR
 	}
 
 	return result, nil
+}
+
+func (store *StorageNFT) DeleteNFT(ctx context.Context, token model.Token) error {
+	storeSrv := store.storeSrv
+	var must []interface{}
+	must = append(
+		must,
+		storeSrv.BuildTermQuery("owner", token.Owner),
+		storeSrv.BuildTermQuery("contract_address", token.ContractAddress),
+		storeSrv.BuildTermQuery("token_id", token.TokenID),
+	)
+	mapQuery := storeSrv.BuildBoolQuery("must", &must)
+	queryBuild, err := storeSrv.BuildModifyQuery(mapQuery)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, store.timeout)
+	defer cancel()
+
+	err = storeSrv.DeleteIndexByQuery(ctx, queryBuild)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -121,8 +121,7 @@ PUT /marketplace-nfts
 {
   "mappings" : {
     "properties" : {
-      "doc_id": {"type": "text", "index": false},
-      "id" : { "type" : "keyword" },
+      "token_id" : { "type" : "keyword" },
       "contract_address" : { "type" : "keyword" },
       "owner": { "type": "keyword" },
       "name" : { "type" : "text" },
@@ -131,14 +130,7 @@ PUT /marketplace-nfts
       "created_time" : { "type" : "date" },
       "last_sold_time" : { "type" : "date" },
       "listed_time" : { "type" : "date" },
-      "price" : { 
-        "type" : "object",
-        "properties": {
-          "eth": {"type": "integer"},
-          "vngt": {"type": "unsigned_long"}
-        }
-      
-      },
+      "price" : { "type" : "object" },
       "sale_type" : { "type" : "keyword", "normalizer": "lowercase" },
       "attributes" : {
         "type" : "nested",
@@ -148,6 +140,17 @@ PUT /marketplace-nfts
           "value" : { "type" : "keyword", "normalizer": "lowercase" }
         }
       }
-    }
+    },
+    "dynamic_templates": [
+      {
+        "price_object":{
+          "match_mapping_type": "*",
+          "path_match":   "price.*",
+          "mapping":{
+            "type": "double"
+          }
+        }
+      }
+    ]
   }
 }

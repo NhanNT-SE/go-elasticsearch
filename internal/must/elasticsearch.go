@@ -8,7 +8,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
-func ConnectElasticsearch(config *config.ElasticsearchConfig) *elasticsearch.Client {
+func ConnectElasticsearch(config config.ElasticsearchConfig) *elasticsearch.Client {
 	cfg := elasticsearch.Config{
 		Addresses:              []string{config.Addr},
 		Username:               config.Username,
